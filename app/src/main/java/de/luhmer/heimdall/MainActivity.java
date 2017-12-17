@@ -25,11 +25,6 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import com.bumptech.glide.Glide;
-import com.bumptech.glide.request.transition.DrawableCrossFadeFactory;
-import com.github.niqdev.mjpeg.DisplayMode;
-import com.github.niqdev.mjpeg.Mjpeg;
-import com.github.niqdev.mjpeg.MjpegInputStream;
-import com.github.niqdev.mjpeg.MjpegView;
 
 import org.eclipse.paho.android.service.MqttAndroidClient;
 import org.eclipse.paho.client.mqttv3.DisconnectedBufferOptions;
@@ -66,13 +61,7 @@ public class MainActivity extends AppCompatActivity {
     SharedPreferences mPrefs;
     static final String MQTT_SERVER_IP = "MQTT_URL";
 
-    //final String serverIP = "10.20.111.137";
-    //final String serverIP = "192.168.10.38";
     TextView tvName;
-    MjpegView mjpegView;
-    int MJPEG_TIMEOUT = 5; //seconds
-    //String MJPEG_URL = "http://" + serverIP + ":5000/video_feed";
-
 
 
     @Override
@@ -107,8 +96,6 @@ public class MainActivity extends AppCompatActivity {
         mWakeLock.acquire();
         */
 
-
-
         findViewById(R.id.btnSettings).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -119,46 +106,7 @@ public class MainActivity extends AppCompatActivity {
 
         final ImageView imgView = findViewById(R.id.imgView);
 
-
-
-
-        /*
-        WebView webView = findViewById(R.id.webView);
-        webView.setWebChromeClient(new WebChromeClient());
-        webView.setWebViewClient(new WebViewClient());
-        //webView.getSettings().setJavaScriptEnabled(true);
-
-        //MJPEG_URL = "https://pbs.twimg.com/profile_images/839721704163155970/LI_TRk1z_400x400.jpg";
-        String summary = "<html><body><img alt=\"live stream\" src=\"" + MJPEG_URL + "\" /></body></html>";
-        webView.loadData(summary, "text/html", null);
-        // ... although note that there are restrictions on what this HTML can do.
-        // See the JavaDocs for loadData() and loadDataWithBaseURL() for more info.
-        */
-
-
         tvName = findViewById(R.id.tvName);
-
-        /*
-        mjpegView = findViewById(R.id.mjpegView);
-
-        Mjpeg.newInstance()
-                //.credential("USERNAME", "PASSWORD")
-                .open(MJPEG_URL, MJPEG_TIMEOUT)
-                .subscribe(new Action1<MjpegInputStream>() {
-                    @Override
-                    public void call(MjpegInputStream mjpegInputStream) {
-                        mjpegView.setSource(mjpegInputStream);
-                        mjpegView.setDisplayMode(DisplayMode.BEST_FIT);
-                        mjpegView.showFps(true);
-                    }
-                }, new Action1<Throwable>() {
-                    @Override
-                    public void call(Throwable throwable) {
-                        Log.d(TAG, "call() called with: throwable = [" + throwable + "]");
-                    }
-                });
-        */
-
         tvName.setText("Verbinde..");
 
         findViewById(android.R.id.content).setOnTouchListener(new View.OnTouchListener() {
