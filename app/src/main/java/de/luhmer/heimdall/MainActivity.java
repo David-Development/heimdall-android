@@ -20,6 +20,7 @@ import android.view.WindowManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
@@ -44,7 +45,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.prefs.Preferences;
 
-import rx.functions.Action1;
+import butterknife.BindView;
+import butterknife.ButterKnife;
+import butterknife.OnClick;
+import butterknife.OnTouch;
 
 import static com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions.withCrossFade;
 
@@ -52,16 +56,16 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = MainActivity.class.getCanonicalName();
 
-
-
-    MqttAndroidClient mqttAndroidClient;
-    String mqttServerUri;
-    final String mqttClientId = "heimdall-android-";
-    final String mqttSubscriptionTopic = "recognitions/#";
-    SharedPreferences mPrefs;
+    private MqttAndroidClient mqttAndroidClient;
+    private String mqttServerUri;
+    private String mqttClientId = "heimdall-android-";
+    private String mqttSubscriptionTopic = "recognitions/#";
+    private SharedPreferences mPrefs;
     static final String MQTT_SERVER_IP = "MQTT_URL";
 
-    TextView tvName;
+    @BindView(R.id.tvName)      TextView tvName;
+    @BindView(R.id.btnSettings) Button btnSettings;
+    @BindView(R.id.imgView)     ImageView imgView;
 
 
     @Override
@@ -77,46 +81,64 @@ public class MainActivity extends AppCompatActivity {
         //Remove notification bar
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
+        // Keep screen on
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
 
 
         setContentView(R.layout.activity_main);
+        ButterKnife.bind(this);
 
 
+        mqttClientId += System.currentTimeMillis();
+
+        // Load MQTT Server IP from preferences
         mPrefs =  PreferenceManager.getDefaultSharedPreferences(this);
         setMqttServerIP(mPrefs.getString(MQTT_SERVER_IP, ""));
 
+
         /*
-        PowerManager mPowerManager = ((PowerManager)getSystemService(POWER_SERVICE));
-        PowerManager.WakeLock mWakeLock;
-        mWakeLock = mPowerManager.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, "tag");
-        mWakeLock.acquire();
+        new CountDownTimer(10000, 1000) {
+
+            @Override
+            public void onTick(long millisUntilFinished) {
+                Log.d(TAG, "onTick() called with: millisUntilFinished = [" + millisUntilFinished + "]");
+            }
+
+            @Override
+            public void onFinish() {
+                turnScreenOff();
+            }
+        }.start();
         */
 
-        findViewById(R.id.btnSettings).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                showEnterMqttServerIpDialog();
-            }
-        });
+
+        // If no ip has been configured yet
+        if(mPrefs.getString(MQTT_SERVER_IP, "").isEmpty()) {
+            showEnterMqttServerIpDialog();
+        } else {
+            connectToMqtt();
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+
+        turnScreenOn();
+    }
 
 
-        final ImageView imgView = findViewById(R.id.imgView);
+    private void connectToMqtt() {
+        if(mqttAndroidClient != null) {
+            mqttAndroidClient.disconnect();
+            // mqttAndroidClient.close(); // Throws "IllegalArgumentException: Invalid ClientHandle"
+            mqttAndroidClient = null;
+        }
 
-        tvName = findViewById(R.id.tvName);
+
         tvName.setText("Verbinde..");
-
-        findViewById(android.R.id.content).setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                Log.d(TAG, "onTouch() called with: v = [" + v + "], event = [" + event + "]");
-                turnScreenOn();
-                return false;
-            }
-        });
 
         mqttAndroidClient = new MqttAndroidClient(getApplicationContext(), mqttServerUri, mqttClientId + System.currentTimeMillis());
         mqttAndroidClient.setCallback(new MqttCallbackExtended() {
@@ -126,9 +148,7 @@ public class MainActivity extends AppCompatActivity {
                 Log.d(TAG, "connectComplete() called with: reconnect = [" + reconnect + "], serverURI = [" + serverURI + "]");
 
                 if (reconnect) {
-
                 } else {
-
                 }
 
                 tvName.setText("Verbindung hergestellt");
@@ -176,8 +196,6 @@ public class MainActivity extends AppCompatActivity {
         mqttConnectOptions.setAutomaticReconnect(true);
         mqttConnectOptions.setCleanSession(false);
 
-
-
         //addToHistory("Connecting to " + serverUri);
         mqttAndroidClient.connect(mqttConnectOptions, null, new IMqttActionListener() {
             @Override
@@ -194,40 +212,14 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
+                tvName.setText(exception.getCause().getMessage());
                 Log.d(TAG, "onFailure() called with: asyncActionToken = [" + asyncActionToken + "], exception = [" + exception + "]");
             }
         });
-
-
-        new CountDownTimer(10000, 1000) {
-
-            @Override
-            public void onTick(long millisUntilFinished) {
-                Log.d(TAG, "onTick() called with: millisUntilFinished = [" + millisUntilFinished + "]");
-            }
-
-            @Override
-            public void onFinish() {
-                turnScreenOff();
-            }
-        }.start();
-
-
-
-        // If no ip has been configured yet
-        if(mPrefs.getString(MQTT_SERVER_IP, "").isEmpty()) {
-            showEnterMqttServerIpDialog();
-        }
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-
-        turnScreenOn();
-    }
-
-    private void turnScreenOn() {
+    @OnTouch(android.R.id.content)
+    boolean turnScreenOn() {
         Log.d(TAG, "turnScreenOn() called");
         WindowManager.LayoutParams params = getWindow().getAttributes();
 
@@ -236,6 +228,8 @@ public class MainActivity extends AppCompatActivity {
         getWindow().setAttributes(params);
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+
+        return false;
     }
 
     private void turnScreenOff() {
@@ -263,15 +257,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-    private void showEnterMqttServerIpDialog() {
+    @OnClick(R.id.btnSettings)
+    void showEnterMqttServerIpDialog() {
         AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
         builder.setTitle("MQTT Server IP");
 
         // Set up the input
         final EditText input = new EditText(MainActivity.this);
         // Specify the type of input expected; this, for example, sets the input as a password, and will mask the text
-        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        //input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        input.setInputType(InputType.TYPE_CLASS_TEXT);
         builder.setView(input);
+
+        input.setText(mPrefs.getString(MQTT_SERVER_IP, ""));
 
         // Set up the buttons
         builder.setPositiveButton("Speichern", new DialogInterface.OnClickListener() {
@@ -281,6 +279,8 @@ public class MainActivity extends AppCompatActivity {
                 // TODO make some kind of regex check for valid IP
                 setMqttServerIP(serverIP);
                 mPrefs.edit().putString(MQTT_SERVER_IP, serverIP).apply();
+
+                connectToMqtt();
             }
         });
         builder.setNegativeButton("Abbrechen", new DialogInterface.OnClickListener() {
