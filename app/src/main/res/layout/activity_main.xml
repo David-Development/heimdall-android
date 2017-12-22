@@ -31,10 +31,10 @@
     <TextView
         android:id="@+id/tvName"
         android:layout_width="match_parent"
-        android:layout_height="100dp"
+        android:layout_height="wrap_content"
         android:textAlignment="center"
         android:gravity="center"
-        android:textSize="50sp"
+        android:textSize="100sp"
         android:textStyle="bold"
         android:background="#65bababa"
         android:text="TextView"
