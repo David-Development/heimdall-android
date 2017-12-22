@@ -1,3 +1,14 @@
 <resources>
     <string name="app_name">Heimdall</string>
+
+    <string name="dialog_settings_title">Einstellungen</string>
+    <string name="dialog_settings_save">Speichern</string>
+    <string name="dialog_settings_abort">Abbrechen</string>
+
+    <string name="mqtt_connecting">Verbinde..</string>
+    <string name="mqtt_connected">Verbindung hergestellt</string>
+    <string name="mqtt_connection_lost">Verbindung verloren</string>
+    <string name="mqtt_ip">MQTT IP</string>
+
+    <string name="camera_live_view">Live Ansicht</string>
 </resources>
