@@ -206,7 +206,11 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
-                tvName.setText(exception.getCause().getMessage());
+                if(exception != null && exception.getCause() != null) {
+                    tvName.setText(exception.getCause().getMessage());
+                } else {
+                    tvName.setText("onFailure! - " + exception.getMessage());
+                }
                 Log.d(TAG, "onFailure() called with: asyncActionToken = [" + asyncActionToken + "], exception = [" + exception + "]");
             }
         });
