@@ -178,6 +178,8 @@ public class MainActivity extends AppCompatActivity {
                         parseImage(message.getPayload());
                         break;
                 }
+
+                debouncer.call(0); // Debounce turnOffScreen
             }
 
             @Override
@@ -206,12 +208,16 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
+                turnScreenOn();
+
                 if(exception != null && exception.getCause() != null) {
                     tvName.setText(exception.getCause().getMessage());
                 } else {
                     tvName.setText("onFailure! - " + exception.getMessage());
                 }
                 Log.d(TAG, "onFailure() called with: asyncActionToken = [" + asyncActionToken + "], exception = [" + exception + "]");
+
+                debouncer.call(0); // Debounce turnOffScreen
             }
         });
     }
@@ -219,8 +225,6 @@ public class MainActivity extends AppCompatActivity {
     private void parseImage(byte[] image) {
         byte[] decodedString = Base64.decode(image, Base64.DEFAULT);
         Glide.with(MainActivity.this).load(decodedString).into(imgView);
-
-        debouncer.call(0); // Debounce turnOffScreen
     }
 
     void turnScreenOn() {
