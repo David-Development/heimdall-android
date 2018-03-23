@@ -1,5 +1,8 @@
 package de.luhmer.heimdall;
 
+import android.os.Handler;
+import android.os.Looper;
+
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -64,7 +67,14 @@ public class Debouncer <T> {
                 } else { // Mark as terminated and invoke callback
                     dueTime = -1;
                     try {
-                        callback.call(key);
+                        // Run on UI Thread!
+                        Runnable task = new Runnable() {
+                            @Override
+                            public void run() {
+                                callback.call(key);
+                            }
+                        };
+                        new Handler(Looper.getMainLooper()).post(task);
                     } finally {
                         delayedMap.remove(key);
                     }

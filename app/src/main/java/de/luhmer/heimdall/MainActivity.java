@@ -30,6 +30,7 @@ import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.IMqttToken;
 import org.eclipse.paho.client.mqttv3.MqttCallbackExtended;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
+import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -40,7 +41,6 @@ import java.util.List;
 import butterknife.BindView;
 import butterknife.ButterKnife;
 import butterknife.OnClick;
-import butterknife.OnTouch;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -58,12 +58,13 @@ public class MainActivity extends AppCompatActivity {
     @BindView(R.id.btnSettings) Button btnSettings;
     @BindView(R.id.imgView)     ImageView imgView;
 
-    private Debouncer<Integer> debouncer;
-    private static final int SCREEN_OFF_DEBOUNCE = 2 * 1000; // 10 Seconds
+    private Debouncer<Integer> debouncerScreenOff;
+    private Debouncer<Integer> debouncerReconnect;
+    private static final int SCREEN_OFF_DEBOUNCE = 10 * 1000; // X Seconds
 
     // https://stackoverflow.com/questions/9966506/programmatically-turn-screen-on-in-android/11708129#11708129
     final Object wakeLockSync = new Object();
-    private PowerManager.WakeLock wakeLock;
+    private PowerManager.WakeLock mWakeLock;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -83,7 +84,7 @@ public class MainActivity extends AppCompatActivity {
         kl.disableKeyguard();
 
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-        wakeLock = pm.newWakeLock(PowerManager.FULL_WAKE_LOCK
+        mWakeLock = pm.newWakeLock(PowerManager.FULL_WAKE_LOCK
                                                                 | PowerManager.ACQUIRE_CAUSES_WAKEUP
                                                                 | PowerManager.ON_AFTER_RELEASE,
                                                         "MyWakeLock");
@@ -91,13 +92,21 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         ButterKnife.bind(this);
 
-        debouncer = new Debouncer<>(new Callback<Integer>() {
+        debouncerScreenOff = new Debouncer<>(new Callback<Integer>() {
             @Override
             public void call(Integer arg) {
-                Log.d(TAG, "debounced() called with: arg = [" + arg + "]");
+                Log.d(TAG, "debouncerScreenOff() called with: arg = [" + arg + "]");
                 turnScreenOff();
             }
         }, SCREEN_OFF_DEBOUNCE);
+
+        debouncerReconnect = new Debouncer<>(new Callback<Integer>() {
+            @Override
+            public void call(Integer arg) {
+                Log.d(TAG, "debouncerReconnect() called with: arg = [" + arg + "]");
+                connectToMqtt();
+            }
+        }, 5 * 1000); // Allow only one reconnect in 5 seconds
 
         mqttClientId += System.currentTimeMillis();
 
@@ -121,13 +130,51 @@ public class MainActivity extends AppCompatActivity {
         turnScreenOn();
     }
 
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
 
-    private void connectToMqtt() {
+        Log.e(TAG, "onPause() called");
+
+        turnScreenOff();
+        disconnectFromMqtt();
+    }
+
+    private void disconnectFromMqtt() {
         if(mqttAndroidClient != null) {
-            mqttAndroidClient.disconnect();
+            Log.d(TAG, "Disconnecting from existing MQTT-Client");
+            //mqttAndroidClient.unsubscribe(new String[] {"camera", "liveview"});
+            //mqttAndroidClient.disconnect();
+            try {
+                mqttAndroidClient.disconnect(0, null, new IMqttActionListener() {
+                    @Override
+                    public void onSuccess(IMqttToken asyncActionToken) {
+                        Log.d(TAG, "onSuccess() called with: asyncActionToken = [" + asyncActionToken + "]");
+                    }
+
+                    @Override
+                    public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
+                        Log.e(TAG, "onFailure() called with: asyncActionToken = [" + asyncActionToken + "], exception = [" + exception + "]");
+                    }
+                }); // 1 second timeout
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+
             // mqttAndroidClient.close(); // Throws "IllegalArgumentException: Invalid ClientHandle"
             mqttAndroidClient = null;
+            Log.d(TAG, "Disconnect done");
         }
+    }
+
+    private void connectToMqtt() {
+        disconnectFromMqtt();
 
         tvName.setText(R.string.mqtt_connecting);
 
@@ -137,18 +184,12 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void connectComplete(boolean reconnect, String serverURI) {
                 Log.d(TAG, "connectComplete() called with: reconnect = [" + reconnect + "], serverURI = [" + serverURI + "]");
-
-                if (reconnect) {
-                } else {
-                }
-
                 tvName.setText(R.string.mqtt_connected);
             }
 
             @Override
             public void connectionLost(Throwable cause) {
                 Log.d(TAG, "connectionLost() called with: cause = [" + cause + "]");
-
                 tvName.setText(R.string.mqtt_connection_lost);
             }
 
@@ -158,7 +199,6 @@ public class MainActivity extends AppCompatActivity {
                 Log.d(TAG, "messageArrived() called with: topic = [" + topic + "]");
 
                 turnScreenOn();
-
 
                 switch(topic) {
                     case "recognitions/person":
@@ -178,8 +218,6 @@ public class MainActivity extends AppCompatActivity {
                         parseImage(message.getPayload());
                         break;
                 }
-
-                debouncer.call(0); // Debounce turnOffScreen
             }
 
             @Override
@@ -188,7 +226,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        MqttConnectOptions mqttConnectOptions = new MqttConnectOptions();
+        final MqttConnectOptions mqttConnectOptions = new MqttConnectOptions();
         mqttConnectOptions.setAutomaticReconnect(true);
         mqttConnectOptions.setCleanSession(false);
 
@@ -208,16 +246,23 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
-                turnScreenOn();
-
-                if(exception != null && exception.getCause() != null) {
-                    tvName.setText(exception.getCause().getMessage());
+                // Workaround for bug #209 (https://github.com/eclipse/paho.mqtt.android/issues/209)
+                if(exception instanceof MqttException) {
+                    MqttException ex = (MqttException) exception;
+                    if(ex.getReasonCode() == MqttException.REASON_CODE_CLIENT_CONNECTED || ex.getReasonCode() == MqttException.REASON_CODE_CONNECT_IN_PROGRESS) {
+                        Log.e(TAG, "Bug #209 detected - Debouncing reconnect!");
+                        debouncerReconnect.call(0);
+                    }
                 } else {
-                    tvName.setText("onFailure! - " + exception.getMessage());
-                }
-                Log.d(TAG, "onFailure() called with: asyncActionToken = [" + asyncActionToken + "], exception = [" + exception + "]");
+                    turnScreenOn();
 
-                debouncer.call(0); // Debounce turnOffScreen
+                    if(exception != null && exception.getCause() != null) {
+                        tvName.setText(exception.getCause().getMessage());
+                    } else {
+                        tvName.setText("Fehler: " + exception.getMessage());
+                    }
+                    Log.e(TAG, "onFailure() called with: asyncActionToken = [" + asyncActionToken + "], exception = [" + exception + "]");
+                }
             }
         });
     }
@@ -231,20 +276,30 @@ public class MainActivity extends AppCompatActivity {
         Log.d(TAG, "turnScreenOn() called");
 
         synchronized (wakeLockSync) {
-            if (wakeLock != null && !wakeLock.isHeld()) {  // if we have a WakeLock but we don't hold it
-                Log.v(TAG, "acquire wakeLock");
-                wakeLock.acquire();
+            WindowManager.LayoutParams layout = getWindow().getAttributes();
+            layout.screenBrightness = 1F;
+            getWindow().setAttributes(layout);
+
+            if (mWakeLock != null && !mWakeLock.isHeld()) {  // if we have a WakeLock but we don't hold it
+                //Log.v(TAG, "acquire mWakeLock");
+                mWakeLock.acquire();
             }
         }
+
+        debouncerScreenOff.call(0); // Debounce turnOffScreen
     }
 
     private void turnScreenOff() {
         Log.d(TAG, "turnScreenOff() called");
 
         synchronized (wakeLockSync) {
-            if (wakeLock != null) {
-                Log.v(TAG, "release wakeLock");
-                wakeLock.release();
+            WindowManager.LayoutParams layout = getWindow().getAttributes();
+            layout.screenBrightness = -1F;
+            getWindow().setAttributes(layout);
+
+            if (mWakeLock != null && mWakeLock.isHeld()) {
+                //Log.v(TAG, "release mWakeLock");
+                mWakeLock.release();
             }
         }
     }
