@@ -228,7 +228,12 @@ public class MainActivity extends AppCompatActivity {
 
         final MqttConnectOptions mqttConnectOptions = new MqttConnectOptions();
         mqttConnectOptions.setAutomaticReconnect(true);
-        mqttConnectOptions.setCleanSession(false);
+        mqttConnectOptions.setCleanSession(true);
+        //mqttConnectOptions.setCleanSession(false);
+        int keepAliveInterval = 5; // Seconds
+        int connectTimeout   = 30; // Seconds
+        mqttConnectOptions.setKeepAliveInterval(keepAliveInterval);
+        mqttConnectOptions.setConnectionTimeout(connectTimeout);
 
         //addToHistory("Connecting to " + serverUri);
         mqttAndroidClient.connect(mqttConnectOptions, null, new IMqttActionListener() {
