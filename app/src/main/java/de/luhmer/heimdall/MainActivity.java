@@ -77,14 +77,10 @@ public class MainActivity extends AppCompatActivity {
     int colorConnected = Color.parseColor("#65a9a9a9");
     int colorNotConnected = Color.parseColor("#65ff0000");
 
-    private Debouncer<Integer> debouncerScreenOff;
     private Debouncer<Integer> debouncerReconnect;
     private static final int SCREEN_OFF_DEBOUNCE = 10 * 1000; // X Seconds
 
-    // https://stackoverflow.com/questions/9966506/programmatically-turn-screen-on-in-android/11708129#11708129
-    final Object wakeLockSync = new Object();
-    private PowerManager.WakeLock mWakeLock;
-
+    ScreenHandler screenHandler;
     String lastDetectedName = "";
 
     @Override
@@ -104,24 +100,12 @@ public class MainActivity extends AppCompatActivity {
         final KeyguardManager.KeyguardLock kl = km.newKeyguardLock("MyKeyguardLock");
         kl.disableKeyguard();
 
-        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-        mWakeLock = pm.newWakeLock(PowerManager.FULL_WAKE_LOCK
-                        | PowerManager.ACQUIRE_CAUSES_WAKEUP
-                        | PowerManager.ON_AFTER_RELEASE,
-                "MyWakeLock");
-
         setContentView(R.layout.activity_main);
         ButterKnife.bind(this);
 
-        tvName.setBackgroundColor(colorNotConnected);
+        screenHandler = new ScreenHandler(this, SCREEN_OFF_DEBOUNCE);
 
-        debouncerScreenOff = new Debouncer<>(new Callback<Integer>() {
-            @Override
-            public void call(Integer arg) {
-                Log.d(TAG, "debouncerScreenOff() called with: arg = [" + arg + "]");
-                turnScreenOff();
-            }
-        }, SCREEN_OFF_DEBOUNCE);
+        tvName.setBackgroundColor(colorNotConnected);
 
         debouncerReconnect = new Debouncer<>(new Callback<Integer>() {
             @Override
@@ -157,7 +141,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
 
-        turnScreenOn("onResume");
+        screenHandler.turnScreenOn("onResume", this);
     }
 
     @Override
@@ -166,7 +150,7 @@ public class MainActivity extends AppCompatActivity {
 
         Log.e(TAG, "onPause() called");
 
-        turnScreenOff();
+        screenHandler.turnScreenOff();
         disconnectFromMqtt();
     }
 
@@ -211,7 +195,7 @@ public class MainActivity extends AppCompatActivity {
         tvStatus.setText(R.string.mqtt_connecting);
 
         //mqttAndroidClient = new MqttAndroidClient(getApplicationContext(), mqttServerUri, mqttClientId + System.currentTimeMillis());
-        mqttAndroidClient = new MqttAndroidClient(getApplicationContext(), mqttServerUri, mqttClientId + getDeviceIMEI());
+        mqttAndroidClient = new MqttAndroidClient(getApplicationContext(), mqttServerUri, mqttClientId + Utils.getDeviceIMEI(this));
         mqttAndroidClient.setCallback(new MqttCallbackExtended() {
 
             @Override
@@ -240,7 +224,7 @@ public class MainActivity extends AppCompatActivity {
                 if((topic.equals("recognitions/person") || topic.equals("recognitions/image")) && message.getPayload().length == 0) {
                     // Don't turn on screen when clearing the screen
                 } else {
-                    turnScreenOn("messageArrived: " + topic);
+                    screenHandler.turnScreenOn("messageArrived: " + topic, MainActivity.this);
                 }
 
                 switch(topic) {
@@ -298,7 +282,7 @@ public class MainActivity extends AppCompatActivity {
                         debouncerReconnect.call(0);
                     }
                 } else {
-                    turnScreenOn("onFailure");
+                    screenHandler.turnScreenOn("onFailure", MainActivity.this);
 
                     if(exception != null && exception.getCause() != null) {
                         tvName.setText(exception.getCause().getMessage());
@@ -351,37 +335,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    void turnScreenOn(String loggingText) {
-        Log.d(TAG, "turnScreenOn() called from: " + loggingText);
 
-        synchronized (wakeLockSync) {
-            WindowManager.LayoutParams layout = getWindow().getAttributes();
-            layout.screenBrightness = 1F;
-            getWindow().setAttributes(layout);
-
-            if (mWakeLock != null && !mWakeLock.isHeld()) {  // if we have a WakeLock but we don't hold it
-                //Log.v(TAG, "acquire mWakeLock");
-                mWakeLock.acquire();
-            }
-        }
-
-        debouncerScreenOff.call(0); // Debounce turnOffScreen
-    }
-
-    private void turnScreenOff() {
-        Log.d(TAG, "turnScreenOff() called");
-
-        synchronized (wakeLockSync) {
-            WindowManager.LayoutParams layout = getWindow().getAttributes();
-            layout.screenBrightness = -1F;
-            getWindow().setAttributes(layout);
-
-            if (mWakeLock != null && mWakeLock.isHeld()) {
-                //Log.v(TAG, "release mWakeLock");
-                mWakeLock.release();
-            }
-        }
-    }
 
     public void subscribeToTopic() {
         Log.d(TAG, "subscribeToTopic() called");
@@ -453,21 +407,4 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-
-    /**
-     * Returns the unique identifier for the device
-     *
-     * @return unique identifier for the device
-     */
-    public String getDeviceIMEI() {
-        String deviceUniqueIdentifier = null;
-        TelephonyManager tm = (TelephonyManager) this.getSystemService(Context.TELEPHONY_SERVICE);
-        if (null != tm) {
-            deviceUniqueIdentifier = tm.getDeviceId();
-        }
-        if (null == deviceUniqueIdentifier || 0 == deviceUniqueIdentifier.length()) {
-            deviceUniqueIdentifier = Settings.Secure.getString(this.getContentResolver(), Settings.Secure.ANDROID_ID);
-        }
-        return deviceUniqueIdentifier;
-    }
 }
