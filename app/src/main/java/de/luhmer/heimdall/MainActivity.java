@@ -287,14 +287,8 @@ public class MainActivity extends AppCompatActivity {
                         debouncerReconnect.call(0);
                     }
                 } else {
-                    screenHandler.turnScreenOn("onFailure", MainActivity.this);
-
-                    if(exception != null && exception.getCause() != null) {
-                        tvName.setText(exception.getCause().getMessage());
-                    } else {
-                        tvName.setText("Fehler: " + exception.getMessage());
-                    }
                     Log.e(TAG, "onFailure() called with: asyncActionToken = [" + asyncActionToken + "], exception = [" + exception + "]");
+                    debouncerReconnect.call(0);
                 }
             }
         });
