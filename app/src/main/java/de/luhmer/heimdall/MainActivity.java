@@ -1,12 +1,18 @@
 package de.luhmer.heimdall;
 
+import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.os.PowerManager;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
+import android.support.v4.app.ActivityCompat;
+import android.support.v4.util.CircularArray;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -35,6 +41,7 @@ import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
@@ -43,6 +50,8 @@ import java.util.List;
 import butterknife.BindView;
 import butterknife.ButterKnife;
 import butterknife.OnClick;
+
+import static com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions.withCrossFade;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -56,9 +65,17 @@ public class MainActivity extends AppCompatActivity {
     static final String SETTING_MQTT_SERVER_IP_STRING = "MQTT_URL";
     static final String SETTING_LIVE_VIEW_BOOLEAN = "LIVE_VIEW";
 
-    @BindView(R.id.tvName)      TextView tvName;
-    @BindView(R.id.btnSettings) Button btnSettings;
-    @BindView(R.id.imgView)     ImageView imgView;
+    @BindView(R.id.tvName)
+    TextView tvName;
+    @BindView(R.id.tvStatus)
+    TextView tvStatus;
+    @BindView(R.id.btnSettings)
+    Button btnSettings;
+    @BindView(R.id.imgView)
+    ImageView imgView;
+
+    int colorConnected = Color.parseColor("#65a9a9a9");
+    int colorNotConnected = Color.parseColor("#65ff0000");
 
     private Debouncer<Integer> debouncerScreenOff;
     private Debouncer<Integer> debouncerReconnect;
@@ -68,13 +85,15 @@ public class MainActivity extends AppCompatActivity {
     final Object wakeLockSync = new Object();
     private PowerManager.WakeLock mWakeLock;
 
+    String lastDetectedName = "";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         //Remove title bar
         requestWindowFeature(Window.FEATURE_NO_TITLE);
-        if(getSupportActionBar() != null) {
+        if (getSupportActionBar() != null) {
             getSupportActionBar().hide();
         }
 
@@ -87,12 +106,14 @@ public class MainActivity extends AppCompatActivity {
 
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
         mWakeLock = pm.newWakeLock(PowerManager.FULL_WAKE_LOCK
-                                                                | PowerManager.ACQUIRE_CAUSES_WAKEUP
-                                                                | PowerManager.ON_AFTER_RELEASE,
-                                                        "MyWakeLock");
+                        | PowerManager.ACQUIRE_CAUSES_WAKEUP
+                        | PowerManager.ON_AFTER_RELEASE,
+                "MyWakeLock");
 
         setContentView(R.layout.activity_main);
         ButterKnife.bind(this);
+
+        tvName.setBackgroundColor(colorNotConnected);
 
         debouncerScreenOff = new Debouncer<>(new Callback<Integer>() {
             @Override
@@ -108,20 +129,27 @@ public class MainActivity extends AppCompatActivity {
                 Log.d(TAG, "debouncerReconnect() called with: arg = [" + arg + "]");
                 connectToMqtt();
             }
-        }, 5 * 1000); // Allow only one reconnect in 5 seconds
+        }, 10 * 1000); // Allow only one reconnect in 5 seconds
+
 
         mqttClientId += System.currentTimeMillis();
 
         // Load MQTT Server IP from preferences
-        mPrefs =  PreferenceManager.getDefaultSharedPreferences(this);
+        mPrefs = PreferenceManager.getDefaultSharedPreferences(this);
         setMqttServerIP(mPrefs.getString(SETTING_MQTT_SERVER_IP_STRING, ""));
 
 
         // If no ip has been configured yet
-        if(mPrefs.getString(SETTING_MQTT_SERVER_IP_STRING, "").isEmpty()) {
+        if (mPrefs.getString(SETTING_MQTT_SERVER_IP_STRING, "").isEmpty()) {
             showEnterMqttServerIpDialog();
         } else {
             connectToMqtt();
+        }
+
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                        new String[]{Manifest.permission.READ_CONTACTS}, 1);
         }
     }
 
@@ -129,7 +157,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
 
-        turnScreenOn();
+        turnScreenOn("onResume");
     }
 
     @Override
@@ -143,8 +171,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void disconnectFromMqtt() {
-        if(mqttAndroidClient != null) {
-            Log.d(TAG, "Disconnecting from existing MQTT-Client");
+        if (mqttAndroidClient != null) {
+            Log.e(TAG, "Disconnecting from existing MQTT-Client");
             //mqttAndroidClient.unsubscribe(new String[] {"camera", "liveview"});
             //mqttAndroidClient.disconnect();
             try {
@@ -175,10 +203,12 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private void connectToMqtt() {
         disconnectFromMqtt();
 
-        tvName.setText(R.string.mqtt_connecting);
+        //tvName.setText(R.string.mqtt_connecting);
+        tvStatus.setText(R.string.mqtt_connecting);
 
         //mqttAndroidClient = new MqttAndroidClient(getApplicationContext(), mqttServerUri, mqttClientId + System.currentTimeMillis());
         mqttAndroidClient = new MqttAndroidClient(getApplicationContext(), mqttServerUri, mqttClientId + getDeviceIMEI());
@@ -187,32 +217,35 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void connectComplete(boolean reconnect, String serverURI) {
                 Log.d(TAG, "connectComplete() called with: reconnect = [" + reconnect + "], serverURI = [" + serverURI + "]");
-                tvName.setText(R.string.mqtt_connected);
+                tvStatus.setText(R.string.mqtt_connected);
+                tvName.setBackgroundColor(colorConnected);
+
+                subscribeToTopic();
             }
 
             @Override
             public void connectionLost(Throwable cause) {
-                Log.d(TAG, "connectionLost() called with: cause = [" + cause + "]");
-                tvName.setText(R.string.mqtt_connection_lost);
+                Log.w(TAG, "connectionLost() called with: cause = [" + cause + "]");
+                tvStatus.setText(R.string.mqtt_connection_lost);
+                tvName.setBackgroundColor(colorNotConnected);
+
+                //debouncerReconnect.call(0);
             }
 
             @Override
             public void messageArrived(String topic, MqttMessage message) throws Exception {
-                //Log.d(TAG, "messageArrived() called with: topic = [" + topic + "], message = [" + message + "]");
-                Log.d(TAG, "messageArrived() called with: topic = [" + topic + "]");
+                Log.d(TAG, "messageArrived() called with: topic = [" + topic + "] - retained: " + message.isRetained() + " - ID: " + message.getId() + " - Is Duplicate: " + message.isDuplicate() + " - QoS: " + message.getQos());
 
-                turnScreenOn();
+
+                if((topic.equals("recognitions/person") || topic.equals("recognitions/image")) && message.getPayload().length == 0) {
+                    // Don't turn on screen when clearing the screen
+                } else {
+                    turnScreenOn("messageArrived: " + topic);
+                }
 
                 switch(topic) {
                     case "recognitions/person":
-                        JSONObject jObject = new JSONObject(message.toString());
-                        List<String> names = new ArrayList<>();
-                        JSONArray predictions = jObject.getJSONArray("predictions");
-                        for (int i = 0; i < predictions.length(); i++) {
-                            names.add(predictions.getJSONObject(i).getString("highest"));
-                        }
-                        String namesString = android.text.TextUtils.join(", ", names);
-                        tvName.setText(namesString);
+                        handlePersonName(message);
                         break;
                     case "recognitions/image":
                         parseImage(message.getPayload());
@@ -231,8 +264,8 @@ public class MainActivity extends AppCompatActivity {
 
         final MqttConnectOptions mqttConnectOptions = new MqttConnectOptions();
         mqttConnectOptions.setAutomaticReconnect(true);
-        mqttConnectOptions.setCleanSession(true);
-        //mqttConnectOptions.setCleanSession(false);
+        //mqttConnectOptions.setCleanSession(true);
+        mqttConnectOptions.setCleanSession(false);
         int keepAliveInterval = 5; // Seconds
         int connectTimeout   = 30; // Seconds
         mqttConnectOptions.setKeepAliveInterval(keepAliveInterval);
@@ -249,20 +282,23 @@ public class MainActivity extends AppCompatActivity {
                 disconnectedBufferOptions.setPersistBuffer(false);
                 disconnectedBufferOptions.setDeleteOldestMessages(false);
                 mqttAndroidClient.setBufferOpts(disconnectedBufferOptions);
-                subscribeToTopic();
             }
 
             @Override
             public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
+                Log.w(TAG, "onFailure!");
                 // Workaround for bug #209 (https://github.com/eclipse/paho.mqtt.android/issues/209)
                 if(exception instanceof MqttException) {
                     MqttException ex = (MqttException) exception;
                     if(ex.getReasonCode() == MqttException.REASON_CODE_CLIENT_CONNECTED || ex.getReasonCode() == MqttException.REASON_CODE_CONNECT_IN_PROGRESS) {
                         Log.e(TAG, "Bug #209 detected - Debouncing reconnect!");
                         debouncerReconnect.call(0);
+                    } else {
+                        Log.e(TAG, "Exception catched.. don't know what to do with it.. Trying to reconnect... \n" + ex.getMessage());
+                        debouncerReconnect.call(0);
                     }
                 } else {
-                    turnScreenOn();
+                    turnScreenOn("onFailure");
 
                     if(exception != null && exception.getCause() != null) {
                         tvName.setText(exception.getCause().getMessage());
@@ -275,13 +311,48 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void parseImage(byte[] image) {
-        byte[] decodedString = Base64.decode(image, Base64.DEFAULT);
-        Glide.with(MainActivity.this).load(decodedString).into(imgView);
+    private void handlePersonName(MqttMessage message) throws JSONException {
+        //Log.d(TAG, "message: \"" + message + "\"");
+        List<String> names = new ArrayList<>();
+        if(!message.toString().equals("")) {
+            JSONObject jObject = new JSONObject(message.toString());
+            JSONArray predictions = jObject.getJSONArray("predictions");
+            for (int i = 0; i < predictions.length(); i++) {
+                names.add(predictions.getJSONObject(i).getString("highest"));
+            }
+        } else {
+            lastDetectedName = "";
+        }
+        String namesString = android.text.TextUtils.join(", ", names);
+
+        Log.d(TAG, "NamesString: " + namesString);
+        if(namesString.equals("unknown") && !lastDetectedName.equals("")) {
+            // If the current detection is "unkown" and the lastDetectedName is not empty (that means that we detected another name before)
+            Log.d(TAG, "Skipping unknown person name!!!");
+            tvName.setTextColor(getResources().getColor(android.R.color.holo_red_dark));
+        } else {
+            lastDetectedName = namesString;
+            tvName.setTextColor(getResources().getColor(android.R.color.primary_text_light));
+        }
+        tvName.setText(lastDetectedName);
     }
 
-    void turnScreenOn() {
-        Log.d(TAG, "turnScreenOn() called");
+    private void parseImage(byte[] image) {
+        //Log.d(TAG, "parseImage() called with: image = [" + image.length + "]");
+        if(image.length > 0) {
+            byte[] decodedString = Base64.decode(image, Base64.DEFAULT);
+            Glide
+                .with(MainActivity.this)
+                .load(decodedString)
+                .into(imgView);
+        } else {
+            Log.d(TAG, "clearing image");
+            imgView.setImageResource(android.R.color.transparent);
+        }
+    }
+
+    void turnScreenOn(String loggingText) {
+        Log.d(TAG, "turnScreenOn() called from: " + loggingText);
 
         synchronized (wakeLockSync) {
             WindowManager.LayoutParams layout = getWindow().getAttributes();
@@ -313,6 +384,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void subscribeToTopic() {
+        Log.d(TAG, "subscribeToTopic() called");
+
         boolean showLiveView = mPrefs.getBoolean(SETTING_LIVE_VIEW_BOOLEAN, false);
         String topic = mqttSubscriptionTopic;
         if(showLiveView) {
