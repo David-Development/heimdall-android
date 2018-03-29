@@ -77,6 +77,7 @@ public class MainActivity extends AppCompatActivity {
     int colorConnected = Color.parseColor("#65a9a9a9");
     int colorNotConnected = Color.parseColor("#65ff0000");
 
+    WakeLockHandler wakeLockHandler;
     private Debouncer<Integer> debouncerReconnect;
     private static final int SCREEN_OFF_DEBOUNCE = 10 * 1000; // X Seconds
 
@@ -104,6 +105,8 @@ public class MainActivity extends AppCompatActivity {
         ButterKnife.bind(this);
 
         screenHandler = new ScreenHandler(this, SCREEN_OFF_DEBOUNCE);
+        wakeLockHandler = new WakeLockHandler();
+        wakeLockHandler.onCreate(this);
 
         tvName.setBackgroundColor(colorNotConnected);
 
@@ -151,6 +154,7 @@ public class MainActivity extends AppCompatActivity {
         Log.e(TAG, "onPause() called");
 
         screenHandler.turnScreenOff();
+        wakeLockHandler.onDestroy();
         disconnectFromMqtt();
     }
 
@@ -163,12 +167,12 @@ public class MainActivity extends AppCompatActivity {
                 mqttAndroidClient.disconnect(0, null, new IMqttActionListener() {
                     @Override
                     public void onSuccess(IMqttToken asyncActionToken) {
-                        Log.d(TAG, "onSuccess() called with: asyncActionToken = [" + asyncActionToken + "]");
+                        Log.d(TAG, "onSuccess() for disconnect called with: asyncActionToken = [" + asyncActionToken + "]");
                     }
 
                     @Override
                     public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
-                        Log.e(TAG, "onFailure() called with: asyncActionToken = [" + asyncActionToken + "], exception = [" + exception + "]");
+                        Log.e(TAG, "onFailure() for disconnect called with: asyncActionToken = [" + asyncActionToken + "], exception = [" + exception + "]");
                     }
                 }); // 1 second timeout
             } catch (Exception e) {
@@ -259,7 +263,8 @@ public class MainActivity extends AppCompatActivity {
         mqttAndroidClient.connect(mqttConnectOptions, null, new IMqttActionListener() {
             @Override
             public void onSuccess(IMqttToken asyncActionToken) {
-                Log.d(TAG, "onSuccess() called with: asyncActionToken = [" + asyncActionToken + "]");
+                Log.d(TAG, "onSuccess() for connect called with: asyncActionToken = [" + asyncActionToken + "] Exception:" + asyncActionToken.getException());
+
                 DisconnectedBufferOptions disconnectedBufferOptions = new DisconnectedBufferOptions();
                 disconnectedBufferOptions.setBufferEnabled(true);
                 disconnectedBufferOptions.setBufferSize(100);
@@ -349,12 +354,12 @@ public class MainActivity extends AppCompatActivity {
         mqttAndroidClient.subscribe(topic, 0, null, new IMqttActionListener() {
             @Override
             public void onSuccess(IMqttToken asyncActionToken) {
-                Log.d(TAG, "onSuccess() called with: asyncActionToken = [" + asyncActionToken + "]");
+                Log.d(TAG, "onSuccess() for subscribe called with: asyncActionToken = [" + asyncActionToken + "]");
             }
 
             @Override
             public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
-                Log.d(TAG, "onFailure() called with: asyncActionToken = [" + asyncActionToken + "], exception = [" + exception + "]");
+                Log.d(TAG, "onFailure() for subscribe called with: asyncActionToken = [" + asyncActionToken + "], exception = [" + exception + "]");
             }
         });
     }
