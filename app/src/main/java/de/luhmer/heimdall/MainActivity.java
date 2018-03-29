@@ -6,9 +6,11 @@ import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.os.PowerManager;
 import android.preference.PreferenceManager;
+import android.provider.Settings;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.telephony.TelephonyManager;
 import android.util.Base64;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -178,7 +180,8 @@ public class MainActivity extends AppCompatActivity {
 
         tvName.setText(R.string.mqtt_connecting);
 
-        mqttAndroidClient = new MqttAndroidClient(getApplicationContext(), mqttServerUri, mqttClientId + System.currentTimeMillis());
+        //mqttAndroidClient = new MqttAndroidClient(getApplicationContext(), mqttServerUri, mqttClientId + System.currentTimeMillis());
+        mqttAndroidClient = new MqttAndroidClient(getApplicationContext(), mqttServerUri, mqttClientId + getDeviceIMEI());
         mqttAndroidClient.setCallback(new MqttCallbackExtended() {
 
             @Override
@@ -374,5 +377,24 @@ public class MainActivity extends AppCompatActivity {
 
     private void setMqttServerIP(String serverIP) {
         this.mqttServerUri = "tcp://" + serverIP + ":1883";
+    }
+
+
+
+    /**
+     * Returns the unique identifier for the device
+     *
+     * @return unique identifier for the device
+     */
+    public String getDeviceIMEI() {
+        String deviceUniqueIdentifier = null;
+        TelephonyManager tm = (TelephonyManager) this.getSystemService(Context.TELEPHONY_SERVICE);
+        if (null != tm) {
+            deviceUniqueIdentifier = tm.getDeviceId();
+        }
+        if (null == deviceUniqueIdentifier || 0 == deviceUniqueIdentifier.length()) {
+            deviceUniqueIdentifier = Settings.Secure.getString(this.getContentResolver(), Settings.Secure.ANDROID_ID);
+        }
+        return deviceUniqueIdentifier;
     }
 }
