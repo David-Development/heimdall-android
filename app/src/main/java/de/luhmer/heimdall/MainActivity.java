@@ -191,7 +191,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    @SuppressLint("MissingPermission")
     private void connectToMqtt() {
         disconnectFromMqtt();
 
@@ -213,10 +212,11 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void connectionLost(Throwable cause) {
-                Log.w(TAG, "connectionLost() called with: cause = [" + cause + "]");
+                Log.w(TAG, "connectionLost() for connection called with: cause = [" + cause + "]");
                 tvStatus.setText(R.string.mqtt_connection_lost);
                 tvName.setBackgroundColor(colorNotConnected);
 
+                //Log.e(TAG, "Connection lost.. Trying to reconnect...");
                 //debouncerReconnect.call(0);
             }
 
@@ -252,8 +252,8 @@ public class MainActivity extends AppCompatActivity {
 
         final MqttConnectOptions mqttConnectOptions = new MqttConnectOptions();
         mqttConnectOptions.setAutomaticReconnect(true);
-        //mqttConnectOptions.setCleanSession(true);
-        mqttConnectOptions.setCleanSession(false);
+        mqttConnectOptions.setCleanSession(true);
+        //mqttConnectOptions.setCleanSession(false);
         int keepAliveInterval = 5; // Seconds
         int connectTimeout   = 30; // Seconds
         mqttConnectOptions.setKeepAliveInterval(keepAliveInterval);
