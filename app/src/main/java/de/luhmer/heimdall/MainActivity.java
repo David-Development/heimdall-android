@@ -1,22 +1,19 @@
 package de.luhmer.heimdall;
 
 import android.Manifest;
-import android.annotation.SuppressLint;
 import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
-import android.os.PowerManager;
+import android.os.Bundle;
 import android.preference.PreferenceManager;
-import android.provider.Settings;
 import android.support.v4.app.ActivityCompat;
-import android.support.v4.util.CircularArray;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
-import android.telephony.TelephonyManager;
 import android.util.Base64;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -28,8 +25,7 @@ import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.Switch;
 import android.widget.TextView;
-
-import com.bumptech.glide.Glide;
+import android.widget.Toast;
 
 import org.eclipse.paho.android.service.MqttAndroidClient;
 import org.eclipse.paho.client.mqttv3.DisconnectedBufferOptions;
@@ -51,38 +47,35 @@ import butterknife.BindView;
 import butterknife.ButterKnife;
 import butterknife.OnClick;
 
-import static com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions.withCrossFade;
-
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = MainActivity.class.getCanonicalName();
+
+    private static final String SETTING_MQTT_SERVER_IP_STRING = "MQTT_URL";
+    private static final String SETTING_LIVE_VIEW_BOOLEAN = "LIVE_VIEW";
+    private static final int REQUEST_PERMISSION_PHONE_STATE = 1;
+    private static final int SCREEN_OFF_DEBOUNCE = 10 * 1000; // X Seconds
 
     private MqttAndroidClient mqttAndroidClient;
     private String mqttServerUri;
     private String mqttClientId = "heimdall-android-";
     private String mqttSubscriptionTopic = "recognitions/#";
     private SharedPreferences mPrefs;
-    static final String SETTING_MQTT_SERVER_IP_STRING = "MQTT_URL";
-    static final String SETTING_LIVE_VIEW_BOOLEAN = "LIVE_VIEW";
 
-    @BindView(R.id.tvName)
-    TextView tvName;
-    @BindView(R.id.tvStatus)
-    TextView tvStatus;
-    @BindView(R.id.btnSettings)
-    Button btnSettings;
-    @BindView(R.id.imgView)
-    ImageView imgView;
 
-    int colorConnected = Color.parseColor("#65a9a9a9");
-    int colorNotConnected = Color.parseColor("#65ff0000");
+    @BindView(R.id.tvName) TextView tvName;
+    @BindView(R.id.tvStatus) TextView tvStatus;
+    @BindView(R.id.btnSettings) Button btnSettings;
+    @BindView(R.id.imgView) ImageView imgView;
 
-    WakeLockHandler wakeLockHandler;
+    private int colorConnected    = Color.parseColor("#65a9a9a9");
+    private int colorNotConnected = Color.parseColor("#65ff0000");
+
+    private WakeLockHandler wakeLockHandler;
     private Debouncer<Integer> debouncerReconnect;
-    private static final int SCREEN_OFF_DEBOUNCE = 10 * 1000; // X Seconds
 
-    ScreenHandler screenHandler;
-    String lastDetectedName = "";
+    private ScreenHandler screenHandler;
+    private String lastDetectedName = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -126,19 +119,15 @@ public class MainActivity extends AppCompatActivity {
         setMqttServerIP(mPrefs.getString(SETTING_MQTT_SERVER_IP_STRING, ""));
 
 
-        // If no ip has been configured yet
-        if (mPrefs.getString(SETTING_MQTT_SERVER_IP_STRING, "").isEmpty()) {
-            showEnterMqttServerIpDialog();
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{ Manifest.permission.READ_PHONE_STATE }, REQUEST_PERMISSION_PHONE_STATE);
         } else {
             connectToMqtt();
         }
-
-
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                        new String[]{Manifest.permission.READ_CONTACTS}, 1);
-        }
     }
+
+
 
     @Override
     protected void onResume() {
@@ -156,6 +145,31 @@ public class MainActivity extends AppCompatActivity {
         screenHandler.turnScreenOff();
         wakeLockHandler.onDestroy();
         disconnectFromMqtt();
+    }
+
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String permissions[], int[] grantResults) {
+        switch (requestCode) {
+            case REQUEST_PERMISSION_PHONE_STATE: {
+                // If request is cancelled, the result arrays are empty.
+                if (grantResults.length > 0
+                        && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    connectToMqtt();
+                    // permission was granted, yay! Do the
+                    // contacts-related task you need to do.
+
+                } else {
+                    Toast.makeText(this, "You can't use the app if you don't give me the permission..", Toast.LENGTH_LONG).show();
+                    // permission denied, boo! Disable the
+                    // functionality that depends on this permission.
+                }
+                return;
+            }
+
+            // other 'case' lines to check for other
+            // permissions this app might request.
+        }
     }
 
     private void disconnectFromMqtt() {
@@ -192,6 +206,17 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void connectToMqtt() {
+        // If no ip has been configured yet
+        if (mPrefs.getString(SETTING_MQTT_SERVER_IP_STRING, "").isEmpty()) {
+            showEnterMqttServerIpDialog();
+            return;
+        }
+
+        if(mqttAndroidClient != null && mqttAndroidClient.isConnected()) {
+            Log.d(TAG, "Aborting reconnecting since client is still connected!");
+            return;
+        }
+
         disconnectFromMqtt();
 
         //tvName.setText(R.string.mqtt_connecting);
@@ -226,7 +251,7 @@ public class MainActivity extends AppCompatActivity {
 
 
                 if((topic.equals("recognitions/person") || topic.equals("recognitions/image")) && message.getPayload().length == 0) {
-                    // Don't turn on screen when clearing the screen
+                    // Don't turn screen on when clearing the screen
                 } else {
                     screenHandler.turnScreenOn("messageArrived: " + topic, MainActivity.this);
                 }
@@ -324,10 +349,17 @@ public class MainActivity extends AppCompatActivity {
         //Log.d(TAG, "parseImage() called with: image = [" + image.length + "]");
         if(image.length > 0) {
             byte[] decodedString = Base64.decode(image, Base64.DEFAULT);
+
+
+            Bitmap bmp = BitmapFactory.decodeByteArray(decodedString,0, decodedString.length);
+            imgView.setImageBitmap(bmp);
+
+            /*
             Glide
                 .with(MainActivity.this)
                 .load(decodedString)
                 .into(imgView);
+            */
         } else {
             Log.d(TAG, "clearing image");
             imgView.setImageResource(android.R.color.transparent);
